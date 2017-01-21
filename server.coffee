@@ -10,7 +10,6 @@ exports.client_addGame = (bggId) !->
 		url: url
 		cb: ['setGameInfo', bggId]
 
-
 exports.setGameInfo = (bggId, data) !->
 	log 'got response', data.status
 	# called when the Http API has the result for the above request
@@ -27,7 +26,7 @@ exports.setGameInfo = (bggId, data) !->
 			return
 
 		log 'the search is on...'
-		if meta = Xml.search(bg, '*.', {tag: 'name'})[0]
+		if meta = Xml.search(bg, '*.', {tag: 'name', primary:'true'})[0]
 			result.name = meta.innerText
 
 		if meta = Xml.search(bg, '*.', {tag: 'yearpublished'})[0]
@@ -37,13 +36,23 @@ exports.setGameInfo = (bggId, data) !->
 			result.image = 'http:' + meta.innerText
 
 		if meta = Xml.search(bg, '*.', {tag: 'thumbnail'})[0]
-			result.thumbnail = 'http:' + meta.thumbnail
+			result.thumbnail = 'http:' + meta.innerText
+
+		if meta = Xml.search(bg, '*.', {tag: 'description'})[0]
+			result.description = meta.innerText
 
 		log 'total result:', result
-		Db.shared.set 'games', bggId, result
+		Db.shared.merge 'games', bggId, result
 
 exports.client_rateGame = (bggId, rating) !->
 	unless game = Db.shared.ref 'games', bggId
 		log 'user', App.userId(), 'tried to rate game', bggId
 		return
 	game.set 'ratings', App.userId(), rating
+
+exports.onUpgrade = !->
+	Db.shared.iterate 'games', (game) !->
+		url = 'https://www.boardgamegeek.com/xmlapi/boardgame/' + game.key()
+		Http.get
+			url: url
+			cb: ['setGameInfo', +game.key()]
