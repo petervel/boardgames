@@ -4,17 +4,46 @@ exports.render = !->
 	return renderGamePage(+pageName) if pageName
 	renderGames()
 
+sortModes = [
+	{
+		name: 'most recent'
+		orderFunc: (game) -> -game.get('addedTime')
+	},
+	{
+		name: 'rating',
+		orderFunc: (game) ->
+			avg = getAverage game.ref('ratings')
+			if avg?
+				-avg
+			else
+				[0, -game.get('addedTime')]
+	}
+]
 
 renderGames = !->
+	ordering = Obs.create(0)
 	Dom.div !->
 		Dom.style position: 'relative'
 
+		if App.userIsAdmin()
+			Dom.div !->
+				Dom.style Box: 'horizontal middle'
+				myForm = Form.input {text: 'Enter BGG id here'}
+				Ui.button "Add", !->
+					Server.call 'addGame', myForm.value()
+					myForm.value('')
+
 		Dom.div !->
 			Dom.style Box: 'horizontal middle'
-			myForm = Form.input {text: 'Enter BGG id here'}
-			Ui.button "Add", !->
-				Server.call 'addGame', myForm.value()
-				myForm.value('')
+			Dom.div !->
+				Dom.style color: '#aaa', fontSize: '0.9em', textAlign: 'right', Flex: 1, marginRight: '3px'
+				Dom.text "sorting by " + sortModes[ordering.get()].name
+			Icon.render
+				data: 'sort'
+				size: '26'
+				color: '#aaa'
+				onTap: !->
+					ordering.modify (val) -> (val + 1) % sortModes.length
 
 		Db.shared.iterate 'games', (game) !->
 			return unless game.get('name')
@@ -24,7 +53,7 @@ renderGames = !->
 					Dom.style
 						width: '50px'
 						height: '30px'
-						margin: '0 10px'
+						marginRight: '10px'
 						borderRadius: '3px'
 						background: "transparent url(#{game.get('thumbnail')}) no-repeat center center"
 						backgroundSize: 'contain'
@@ -32,28 +61,34 @@ renderGames = !->
 					Dom.style Flex: 1
 					Dom.text "#{game.get('name')} (#{game.get('yearpublished')})"
 
-				sum = Obs.create 0
-				count = Obs.create 0
-				Dom.div !->
-					game.iterate 'ratings', (rating) !->
-						thisRating = +rating.get()
-						sum.incr thisRating
-						count.incr()
-						Obs.onClean !->
-							count.incr -1
-							sum.incr -thisRating
-
-					if sum.get()
+				Obs.observe !->
+					if avg = getAverage game.ref('ratings')
+						Dom.text Math.round(10*avg)/10
+					Dom.div !->
 						Icon.render
 							data: 'star'
 							size: '25'
 							color: '#ffaa00'
-						Dom.text Math.round(10*sum.get()/count.get())/10
 
 				Dom.onTap !-> Page.nav game.key()
-		, (game) -> -game.get('addedTime')
+		, (game) -> sortModes[ordering.get()].orderFunc game
+
+getAverage = (ratings, only) !->
+	sum = 0
+	count = 0
+	ratings.iterate (rating) !->
+		if only?
+			return unless +rating.key() in only # skip those we aren't counting
+		sum += +rating.get()
+		count++
+
+	if count
+		return sum / count
 
 renderGamePage = (gameId) !->
+	Comments.enable
+		store: ['games', gameId, 'comments']
+
 	game = Db.shared.ref 'games', gameId
 
 	if thumbnail = game.get 'thumbnail'
