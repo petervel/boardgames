@@ -59,7 +59,7 @@ renderGames = !->
 			Dom.style Box: 'horizontal middle'
 			Dom.div !->
 				Dom.style color: '#aaa', fontSize: '0.9em', textAlign: 'right', Flex: 1, marginRight: '3px'
-				Dom.text "sorting by " + sortModes[ordering.get()].name
+				Dom.text "sorted by " + sortModes[ordering.get()].name
 			Icon.render
 				data: 'sort'
 				size: '26'
