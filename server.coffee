@@ -41,6 +41,8 @@ exports.setGameInfo = (bggId, data) !->
 		if meta = Xml.search(bg, '*.', {tag: 'description'})[0]
 			result.description = meta.innerText
 
+		result.url = "https://boardgamegeek.com/boardgame/#{bggId}/"
+
 		log 'total result:', result
 		Db.shared.merge 'games', bggId, result
 
