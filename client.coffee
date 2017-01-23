@@ -111,24 +111,25 @@ renderGamePage = (gameId) !->
 			Dom.style maxHeight: '100px', margin: '20px 0', overflow: 'auto'
 			Dom.text game.get 'description'
 
-		showStar = (nr, vote, ours=false) !->
+		showStar = (nr, rating, mine=false) !->
 			Dom.span !->
 				Icon.render
-					data: if not vote? or nr > vote then 'star-outline' else 'star'
+					data: if not rating? or nr > rating then 'star-outline' else 'star'
 					size: '25'
-					color: if not vote? then '#ccc' else '#ffaa00'
+					color: if not rating? then '#ccc' else '#ffaa00'
 					onTap: !->
-						return unless ours
+						return unless mine
 						Server.sync 'rateGame', gameId, nr, !->
 							game.set 'ratings', App.userId(), nr
+#-webkit-linear-gradient(top, rgba(0, 0, 0, 0) 0px, rgba(0, 0, 0, 0.6) 100%)
+		renderRating = (rating, mine) !->
+			for i in [1..5]
+				showStar i, rating, mine
 
 		Dom.div !->
 			Dom.style Box: 'horizontal middle', _justifyContent: 'space-around'
-			Dom.div !-> Dom.text "Jouw beoordeling:"
-			Dom.div !->
-				vote = game.get 'ratings', App.userId()
-				for i in [1..5]
-					showStar i, vote, true
+			Dom.div !-> Dom.text "Your rating"
+			Dom.div !-> renderRating game.get('ratings', App.userId()), true
 
 		Dom.div !->
 			Dom.style margin: '30px auto'
@@ -152,6 +153,4 @@ renderGamePage = (gameId) !->
 						Dom.style Flex: 1, marginLeft: '10px'
 						Dom.text App.userName userId
 
-					Dom.div !->
-						for i in [1..5]
-							showStar i, rating.get()
+					Dom.div !-> renderRating rating.get()
