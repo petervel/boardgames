@@ -1,8 +1,59 @@
 exports.render = !->
 	pageName = Page.state.get(0)
-	#return renderRankingsPage() if pageName is 'rankings'
-	return renderGamePage(+pageName) if pageName
-	renderGames()
+	return renderCollectionPage() if pageName is 'collection'
+	return renderAddMatchPage if pageName is 'addMatch'
+	return renderMatchpage +Page.state.get(1) if pageName is 'match'
+	return renderGamePage +Page.state.get(1) if pageName is 'game'
+	renderMainpage()
+
+renderIcon = (url, style) !->
+	Dom.div !->
+		Dom.style
+			width: '50px'
+			height: '30px'
+			marginRight: '10px'
+			borderRadius: '3px'
+			background: "transparent url(#{url}) no-repeat center center"
+			backgroundSize: 'contain'
+		Dom.style style if style
+
+renderAddMatchPage = !->
+	Dom.div !->
+		Dom.text "adding a match"
+
+renderMatchpage = (matchId) !->
+	Dom.text matchId
+
+renderMainpage = !->
+	Dom.div !->
+		Dom.style Box: 'horizontal middle'
+		Dom.div !->
+			Dom.style Flex: 1, margin: '0 3px'
+			Ui.bigButton "Add match", !-> Page.nav 'addMatch'
+		Dom.div !->
+			Dom.style Flex: 1, margin: '0 3px'
+			Ui.bigButton "collection", !-> Page.nav 'collection'
+	Obs.observe !->
+		return unless Db.shared.get('matches')
+		Dom.div !-> Dom.text "Played games:"
+	Db.shared.iterate 'matches', (match) !->
+		return unless game = Db.shared.get(match.get('gameId'))
+		Ui.item !->
+			Dom.style Box: 'horizontal middle'
+
+			renderIcon game.get 'thumbnail'
+
+			Dom.div !->
+				Dom.style Flex: 1
+				Dom.text "#{game.get('name')}"
+			winnerId = match.get 'winner'
+
+			Ui.avatar
+				key: App.userAvatar winnerId
+				onTap: !-> App.showMemberInfo winnerId
+
+			Dom.onTap !-> Page.nav ['match', match.key()]
+	, (match) -> -match.get('time')
 
 sortModes = [
 	{
@@ -20,7 +71,7 @@ sortModes = [
 	}
 ]
 
-renderGames = !->
+renderCollectionPage = !->
 	ordering = Obs.create(0)
 
 	if App.userIsAdmin()
@@ -71,21 +122,14 @@ renderGames = !->
 			return unless game.get('name')
 			Ui.item !->
 				Dom.style Box: 'horizontal middle'
-				Dom.div !->
-					Dom.style
-						width: '50px'
-						height: '30px'
-						marginRight: '10px'
-						borderRadius: '3px'
-						background: "transparent url(#{game.get('thumbnail')}) no-repeat center center"
-						backgroundSize: 'contain'
+				renderIcon game.get('thumbnail')
 				Dom.div !->
 					Dom.style Flex: 1
 					Dom.text "#{game.get('name')} (#{game.get('yearpublished')})"
 
 				renderAverage game.ref('ratings')
 
-				Dom.onTap !-> Page.nav game.key()
+				Dom.onTap !-> Page.nav ['game', game.key()]
 		, (game) -> sortModes[ordering.get()].orderFunc game
 
 getAverage = (ratings, only) !->
