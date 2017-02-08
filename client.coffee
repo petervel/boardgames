@@ -1,9 +1,18 @@
+{tr} = require 'i18n'
+
 exports.render = !->
 	pageName = Page.state.get(0)
-	return renderCollectionPage() if pageName is 'collection'
-	return renderAddMatchPage if pageName is 'addMatch'
-	return renderMatchpage +Page.state.get(1) if pageName is 'match'
-	return renderGamePage +Page.state.get(1) if pageName is 'game'
+	switch pageName
+		when 'collection'
+			if gameId = Page.state.get(1)
+				return renderGamePage +gameId
+			else
+				return renderCollectionPage()
+		when 'addPlay'
+			return renderAddPlayPage()
+		else
+			if gameId = +pageName
+				return renderPlaypage gameId
 	renderMainpage()
 
 renderIcon = (url, style) !->
@@ -17,47 +26,200 @@ renderIcon = (url, style) !->
 			backgroundSize: 'contain'
 		Dom.style style if style
 
-renderAddMatchPage = !->
-	Dom.div !->
-		Dom.text "adding a match"
+renderPlayerSelector = (unavailable, current, choose) !->
+	Modal.show tr("Select player"), !->
+		App.users.iterate (user) !->
+			if +user.key isnt current
+				return if +user.key() in unavailable or not user.get('symbol')
+			Ui.item
+				avatar: user.get('avatar')
+				content: user.get('name')
+				onTap: !->
+					choose +user.key()
+					Modal.remove()
+			# TODO: sort by plays, e.g. -Db.shared.get('players', user.key(), 'matches') ? 0
 
-renderMatchpage = (matchId) !->
-	Dom.text matchId
+renderGameSelector = (currentId) !->
+	currentGame = Db.shared.ref 'collection', currentId.peek()
+	Modal.show tr("Select game"), !->
+		Db.shared.iterate 'collection', (game) !->
+			Ui.item
+				avatar: !-> renderIcon game.get('thumbnail')
+				content: game.get('name')
+				onTap: !->
+					currentId.set +game.key()
+					Modal.remove()
+			# TODO: sort by plays, e.g. -Db.shared.get('players', user.key(), 'matches') ? 0
+
+renderAddPlayPage = !->
+	gameId = Obs.create()
+	Ui.item !->
+		Dom.style Box: 'horizontal middle', marginBottom: '30px'
+
+		Dom.onTap !->
+			renderGameSelector gameId
+
+		if not gameId.get()
+			Dom.div !->
+				Dom.style height: '40px', width: '40px', lineHeight: '40px', fontSize: '20px', textAlign: 'center', borderRadius: '50%', background: '#ccc', marginRight: '10px', color: '#fff'
+				Dom.text "?"
+			Dom.span !->
+				Dom.style color: '#ccc'
+				Dom.text tr("Select game")
+			return
+
+		game = Db.shared.ref 'collection', gameId.get()
+
+		renderIcon game.get('thumbnail')
+		Dom.div !->
+			Dom.style Flex: 1
+			Dom.text "#{game.get('name')} (#{game.get('yearpublished')})"
+
+
+	# default to the user adding being one of the players
+	players = Obs.create {0: App.userId()}
+	playerIds = Obs.create []
+	Obs.observe !-> playerIds.set (+v for k,v of players.get())
+
+	Dom.div !-> Dom.text tr("Players:")
+
+	players.iterate (player) !->
+		Ui.item !->
+			if player.get()
+				Ui.avatar App.memberAvatar(player.get())
+				Dom.text App.userName(player.get())
+			else
+				Ui.avatar(0, '#ccc')
+
+			if playerIds.get().length < App.users.count().get()
+				Dom.onTap !->
+					renderPlayerSelector playerIds.get(), +player.key(), (chosen) !->
+						players.set player.key(), chosen
+	, (player) -> +player.key()
+
+	# add another player
+	Obs.observe !->
+		return unless playerIds.get().length < App.users.count().get()
+		Ui.item !->
+			Ui.avatar(0, '#ccc')
+			Dom.style color: '#ccc'
+			Dom.text tr("Add player")
+			Dom.onTap !->
+				renderPlayerSelector playerIds.get(), 0, (chosen) !->
+					players.set players.count().get(), chosen
+
+	# winner
+	Obs.observe !->
+		return unless gameId.get() and players.count().get() > 1
+
+		winner = Obs.create()
+		Dom.div !->
+			Dom.style marginTop: '30px'
+			Dom.text tr("Winner:")
+
+		Ui.item !->
+			if winnerId = +winner.get()
+				Dom.style color: 'inherit'
+				Ui.avatar App.memberAvatar(winnerId)
+				Dom.text App.userName(winnerId)
+			else
+				Dom.style color: '#ccc'
+				Ui.avatar(0, '#ccc')
+				Dom.text tr("Select winner")
+
+			if players.count().get() > 1
+				Dom.onTap !->
+					nonPlayers = (+u for u of App.users.peek() when +u not in playerIds.get())
+					log 'non players:', nonPlayers
+					renderPlayerSelector nonPlayers, 0, (chosen) !->
+						winner.set chosen
+
+		Obs.observe !->
+			if gameId.get() and players.count().get() > 1 and winner.get()
+				Ui.bigButton tr("Add play"), !->
+					Server.send 'addPlay', gameId.get(), playerIds.get(), winner.get()
+					Page.nav '/'
+
+renderPlaypage = (playId) !->
+	play = Db.shared.ref 'plays', playId
+
+	Comments.enable store: ['plays', playId, 'comments']
+	if not game = Db.shared.ref 'collection', play.get('gameId')
+		Dom.text tr("Game not found")
+		return
+
+	renderGameHeader game
+
+	Dom.div !->
+		Dom.style color: '#aaa', fontSize: '0.8em', margin: '5px 0', textAlign: 'center'
+		Time.deltaText play.get 'time'
+
+	Dom.div !->
+		Dom.style marginTop: '20px'
+		Dom.text tr("Players:")
+	for playerId in play.get 'playerIds'
+		Ui.item !->
+			Dom.style Box: 'horizontal middle'
+
+			Ui.avatar
+				key: App.userAvatar playerId
+				onTap: !-> App.showMemberInfo playerId
+
+			Dom.div !->
+				Dom.style Flex: 1
+				Dom.text "#{App.users.get(playerId).name}"
+
+	Dom.div !->
+		Dom.style marginTop: '20px'
+		Dom.text tr("Winner:")
+
+	Ui.item !->
+		Dom.style Box: 'horizontal middle'
+
+		Ui.avatar
+			key: App.userAvatar play.get 'winnerId'
+			onTap: !-> App.showMemberInfo play.get 'winnerId'
+
+		Dom.div !->
+			Dom.style Flex: 1
+			Dom.text "#{App.users.get(play.get 'winnerId').name}"
 
 renderMainpage = !->
 	Dom.div !->
 		Dom.style Box: 'horizontal middle'
 		Dom.div !->
 			Dom.style Flex: 1, margin: '0 3px'
-			Ui.bigButton "Add match", !-> Page.nav 'addMatch'
+			Ui.bigButton "Add play", !-> Page.nav 'addPlay'
 		Dom.div !->
 			Dom.style Flex: 1, margin: '0 3px'
 			Ui.bigButton "collection", !-> Page.nav 'collection'
+
 	Obs.observe !->
-		return unless Db.shared.get('matches')
+		return unless Db.shared.get('plays')
 		Dom.div !-> Dom.text "Played games:"
-	Db.shared.iterate 'matches', (match) !->
-		return unless game = Db.shared.get(match.get('gameId'))
-		Ui.item !->
-			Dom.style Box: 'horizontal middle'
 
-			renderIcon game.get 'thumbnail'
+		Db.shared.iterate 'plays', (play) !->
+			return unless game = Db.shared.get 'collection', (play.get('gameId'))
+			Ui.item !->
+				Dom.style Box: 'horizontal middle'
 
-			Dom.div !->
-				Dom.style Flex: 1
-				Dom.text "#{game.get('name')}"
-			winnerId = match.get 'winner'
+				renderIcon game.thumbnail
 
-			Ui.avatar
-				key: App.userAvatar winnerId
-				onTap: !-> App.showMemberInfo winnerId
+				Dom.div !->
+					Dom.style Flex: 1
+					Dom.text "#{game.name}"
 
-			Dom.onTap !-> Page.nav ['match', match.key()]
-	, (match) -> -match.get('time')
+				winnerId = +play.get 'winnerId'
+				Ui.avatar
+					key: App.userAvatar winnerId
+					onTap: !-> App.showMemberInfo winnerId
+
+				Dom.onTap !-> Page.nav play.key()
+		, (play) -> -play.get('time')
 
 sortModes = [
 	{
-		name: 'most recent'
+		name: 'newest'
 		orderFunc: (game) -> -game.get('addedTime')
 	},
 	{
@@ -75,50 +237,25 @@ renderCollectionPage = !->
 	ordering = Obs.create(0)
 
 	if App.userIsAdmin()
-		toggleIt = Obs.create false
-		Obs.observe !->
-			Dom.div !->
-				Dom.style
-					position: 'relative'
-					backgroundColor: App.colors().highlight
-					color: App.colors().highlightText
-					top: '2px'
-					left: '2px'
-					width: '40px'
-					height: '40px'
-					boxSizing: 'border-box'
-					textAlign: 'center'
-					lineHeight: '40px'
-					fontSize: '24px'
-					borderRadius: '50%'
-					boxShadow: '3px 3px 8px 0px #ccc'
-					zIndex: 2
-				Dom.text "+"
-				Dom.onTap !-> toggleIt.modify (v)->!v
-			return unless toggleIt.get()
-			Dom.div !->
-				Dom.style Box: 'horizontal middle'
-				myForm = Form.input {text: 'Enter BGG id here'}
-				Ui.button "Add", !->
-					Server.call 'addGame', myForm.value()
-					myForm.value('')
+		Ui.bigButton "add game", !->
+			Modal.prompt "Enter BGG id", (id) !->
+				Server.call 'addGame', id
 
 	Dom.div !->
 		Dom.style position: 'relative', margin: '10px'
 
-		Dom.div !->
-			Dom.style Box: 'horizontal middle'
-			Dom.div !->
-				Dom.style color: '#aaa', fontSize: '0.9em', textAlign: 'right', Flex: 1, marginRight: '3px'
-				Dom.text "sorted by " + sortModes[ordering.get()].name
-			Icon.render
-				data: 'sort'
-				size: '26'
-				color: '#aaa'
-				onTap: !->
-					ordering.modify (val) -> (val + 1) % sortModes.length
+		Comments.enable store: ['collection', 'comments']
 
-		Db.shared.iterate 'games', (game) !->
+		Page.setActions
+			icon: 'sort'
+			label: "sorted by " + sortModes[ordering.get()].name
+			action: !-> ordering.modify (val) -> (val + 1) % sortModes.length
+
+		Dom.div !->
+			Dom.style fontSize: '0.8em', color: '#aaa', textAlign: 'center'
+			Dom.text "sorted by: " + sortModes[ordering.get()].name
+
+		Db.shared.iterate 'collection', (game) !->
 			return unless game.get('name')
 			Ui.item !->
 				Dom.style Box: 'horizontal middle'
@@ -129,7 +266,7 @@ renderCollectionPage = !->
 
 				renderAverage game.ref('ratings')
 
-				Dom.onTap !-> Page.nav ['game', game.key()]
+				Dom.onTap !-> Page.nav ['collection', game.key()]
 		, (game) -> sortModes[ordering.get()].orderFunc game
 
 getAverage = (ratings, only) !->
@@ -169,13 +306,7 @@ renderStars = (rating, rateFunc) !->
 	for i in [1..5]
 		renderStar i, rating, rateFunc
 
-renderGamePage = (gameId) !->
-	Comments.enable
-		store: ['games', gameId, 'comments']
-		inline: true
-
-	game = Db.shared.ref 'games', gameId
-
+renderGameHeader = (game) !->
 	if thumbnail = game.get 'thumbnail'
 		hiRes = Obs.create()
 		Dom.div !->
@@ -196,6 +327,15 @@ renderGamePage = (gameId) !->
 				Dom.div !->
 					Dom.text "More Info"
 					Dom.onTap !-> App.openUrl game.get('url')
+
+renderGamePage = (gameId) !->
+	Comments.enable
+		store: ['collection', gameId, 'comments']
+		inline: true
+
+	game = Db.shared.ref 'collection', gameId
+
+	renderGameHeader game
 
 	Ui.item !->
 		Dom.style Box: 'horizontal middle'
@@ -231,3 +371,4 @@ renderGamePage = (gameId) !->
 				Dom.text App.userName userId
 
 			Dom.div !-> renderStars rating.get()
+
